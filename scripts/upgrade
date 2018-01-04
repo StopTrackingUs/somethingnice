@@ -73,8 +73,8 @@ ynh_app_setting_set $app final_path $final_path
 ynh_setup_source $final_path
 
 # Set files ownership during installation
-sudo chown $app: $final_path -R
-sudo chmod 755 $final_path -R
+chown $app: $final_path -R
+chmod 755 $final_path -R
 
 #=================================================
 # Modify Nginx configuration file and copy it to Nginx conf directory
@@ -99,9 +99,9 @@ ynh_systemd_config
 script_dir="$PWD"
 pushd "$final_path"
 sudo chown -R $app: $final_path
-sudo_path npm install
+sudo_path npm update
 sudo_path npm install -g bower
-sudo su -l $app -s /bin/bash -c "cd $final_path && env PATH=$PATH bower install"
+sudo su -l $app -s /bin/bash -c "cd $final_path && env PATH=$PATH bower update"
 popd
 
 #=================================================
@@ -150,7 +150,7 @@ sudo yunohost service add $app --log "/var/log/$app/$app.log"
 # START CRYPTPAD IN BACKGROUND
 #=================================================
 
-sudo systemctl start $app
+systemctl start $app
 
 #=================================================
 # SETUP SSOWAT
@@ -164,5 +164,5 @@ fi
 #=================================================
 # RELOAD NGINX
 #=================================================
-sudo systemctl restart php5-fpm
-sudo systemctl reload nginx
+systemctl restart php5-fpm
+systemctl reload nginx
