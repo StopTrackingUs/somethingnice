@@ -5,7 +5,7 @@
 #=================================================
 # Workaround for backward compatibility
 unset N_PREFIX
-NODEJS_VERSION="8"
+NODEJS_VERSION="9.9.0"
 
 #=================================================
 #=================================================
@@ -105,60 +105,6 @@ ynh_remove_systemd_config () {
 
 #=================================================
 #=================================================
-
-#=================================================
-# CHECKING
-#=================================================
-
-CHECK_USER () {	# Vérifie la validité de l'user admin
-# $1 = Variable de l'user admin.
-	ynh_user_exists "$1" || ynh_die "Wrong user"
-}
-
-CHECK_DOMAINPATH () {	# Vérifie la disponibilité du path et du domaine.
-	if sudo yunohost domain --help | grep --quiet url-available
-	then
-		# Check availability of a web path
-		ynh_webpath_available $domain $path_url
-		# Register/book a web path for an app
-		ynh_webpath_register $app $domain $path_url
-	else
-		# Use the legacy command
-		sudo yunohost app checkurl $domain$path_url -a $app
-	fi
-}
-
-CHECK_FINALPATH () {	# Vérifie que le dossier de destination n'est pas déjà utilisé.
-	final_path=/var/www/$app
-	test ! -e "$final_path" || ynh_die "This path already contains a folder"
-}
-
-#=================================================
-# DISPLAYING
-#=================================================
-
-NO_PRINT () {	# Supprime l'affichage dans stdout pour la commande en argument.
-	set +x
-	$@
-	set -x
-}
-
-WARNING () {	# Écrit sur le canal d'erreur pour passer en warning.
-	$@ >&2
-}
-
-SUPPRESS_WARNING () {	# Force l'écriture sur la sortie standard
-	$@ 2>&1
-}
-
-QUIET () {	# Redirige la sortie standard dans /dev/null
-	$@ > /dev/null
-}
-
-ALL_QUIET () {	# Redirige la sortie standard et d'erreur dans /dev/null
-	$@ > /dev/null 2>&1
-}
-
 #=================================================
 # BACKUP
 #=================================================
@@ -261,6 +207,10 @@ sudo_path () {
 	sudo env "PATH=$PATH" $@
 }
 
+#=================================================
+# EXPERIMENTAL HELPERS
+#=================================================
+
 # INFOS
 # n (Node version management) utilise la variable PATH pour stocker le path de la version de node à utiliser.
 # C'est ainsi qu'il change de version
@@ -275,11 +225,27 @@ sudo_path () {
 # Dans ce cas, c'est $PATH qui contient le chemin de la version de node. Il doit être propagé sur les autres shell si nécessaire.
 
 n_install_dir="/opt/node_n"
-node_version_path="/usr/local/n/versions/node"
+node_version_path="/opt/node_n/n/versions/node"
+# N_PREFIX est le dossier de n, il doit être chargé dans les variables d'environnement pour n.
+export N_PREFIX="$n_install_dir"
+
+ynh_install_n () {
+	echo "Installation of N - Node.js version management" >&2
+	# Build an app.src for n
+	mkdir -p "../conf"
+	echo "SOURCE_URL=https://github.com/tj/n/archive/v2.1.7.tar.gz
+SOURCE_SUM=2ba3c9d4dd3c7e38885b37e02337906a1ee91febe6d5c9159d89a9050f2eea8f" > "../conf/n.src"
+	# Download and extract n
+	ynh_setup_source "$n_install_dir/git" n
+	# Install n
+	(cd "$n_install_dir/git"
+	PREFIX=$N_PREFIX make install 2>&1)
+}
+
 ynh_use_nodejs () {
 	nodejs_version=$(ynh_app_setting_get $app nodejs_version)
 
-	load_n_path="[[ :$PATH: == *\":$n_install_dir/bin:\"* ]] || PATH=\"$n_install_dir/bin:$PATH\""
+	load_n_path="[[ :$PATH: == *\":$n_install_dir/bin:\"* ]] || PATH=\"$n_install_dir/bin:$PATH\"; N_PREFIX="$n_install_dir""
 
 	nodejs_use_version="$n_install_dir/bin/n -q $nodejs_version"
 
@@ -311,9 +277,13 @@ ynh_install_nodejs () {
 	test -x /usr/bin/npm && mv /usr/bin/npm /usr/bin/npm_n
 
 	# If n is not previously setup, install it
-	n --version > /dev/null 2>&1 || \
-	( echo "Installation of N - Node.js version management" >&2; \
-	curl -sL $n_install_script | N_PREFIX="$n_install_dir" bash -s -- -y - )
+	if ! test n --version > /dev/null 2>&1
+	then
+		ynh_install_n
+	fi
+
+	# Modify the default N_PREFIX in n script
+	ynh_replace_string "^N_PREFIX=\${N_PREFIX-.*}$" "N_PREFIX=\${N_PREFIX-$N_PREFIX}" "$n_install_dir/bin/n"
 
 	# Restore /usr/local/bin in PATH
 	PATH=$CLEAR_PATH
@@ -329,8 +299,11 @@ ynh_install_nodejs () {
 	real_nodejs_version=$(find $node_version_path/$nodejs_version* -maxdepth 0 | sort --version-sort | tail --lines=1)
 	real_nodejs_version=$(basename $real_nodejs_version)
 
-	# Create a symbolic link for this major version
-	ln --symbolic --force --no-target-directory $node_version_path/$real_nodejs_version $node_version_path/$nodejs_version
+	# Create a symbolic link for this major version. If the file doesn't already exist
+	if [ ! -e "$node_version_path/$nodejs_version" ]
+	then
+		ln --symbolic --force --no-target-directory $node_version_path/$real_nodejs_version $node_version_path/$nodejs_version
+	fi
 
 	# Store the ID of this app and the version of node requested for it
 	echo "$YNH_APP_ID:$nodejs_version" | tee --append "$n_install_dir/ynh_app_version"
@@ -364,7 +337,6 @@ ynh_remove_nodejs () {
 		sed --in-place "/N_PREFIX/d" /root/.bashrc
 	fi
 }
-
 ynh_cron_upgrade_node () {
 	# Build the update script
 	cat > "$n_install_dir/node_update.sh" << EOF
