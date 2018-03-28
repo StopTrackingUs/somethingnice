@@ -126,6 +126,7 @@ pushd "$final_path"
 chown -R $app: $final_path
 npm install
 npm install -g bower
+chown $app:$app /home/cryptpad/.config/configstore/* -R
 su -l $app -s /bin/bash -c "cd $final_path && env PATH=$PATH bower install"
 popd
 
