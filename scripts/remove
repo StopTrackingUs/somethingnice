@@ -1,34 +1,82 @@
 #!/bin/bash
 
-# Exit on command errors and treat unset variables as an error
-set -u
+#=================================================
+# GENERIC START
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
 
-# Source app helpers
 source _common.sh
 source /usr/share/yunohost/helpers
 
-app=$YNH_APP_INSTANCE_NAME
+#=================================================
+# LOAD SETTINGS
+#=================================================
 
-# Retrieve app settings
+app=$YNH_APP_INSTANCE_NAME
 domain=$(ynh_app_setting_get $app domain)
 
-# Stop and remove service
+#=================================================
+# STANDARD REMOVE
+#=================================================
+# STOP AND REMOVE SERVICE
+#=================================================
+
+# Remove the dedicated systemd config
 ynh_remove_systemd_config
 
-# Remove logrotate configuration
-ynh_remove_logrotate
+#=================================================
+# REMOVE SERVICE FROM ADMIN PANEL
+#=================================================
 
-# Remove sources
-ynh_secure_remove "/var/www/$app"
+if yunohost service status | grep -q $app
+then
+	echo "Remove $app service"
+	yunohost service remove $app
+fi
 
-# Remove nginx configuration file
+#=================================================
+# REMOVE APP MAIN DIR
+#=================================================
+
+# Remove the app directory securely
+ynh_secure_remove "$final_path"
+
+#=================================================
+# REMOVE NGINX CONFIGURATION
+#=================================================
+
+# Remove the dedicated nginx config
 ynh_remove_nginx_config
 
-# Remove user and data
-ynh_system_user_delete $app
+#=================================================
+# REMOVE LOGROTATE CONFIGURATION
+#=================================================
 
-# Remove monitor
-sudo yunohost service remove $app
+# Remove the app-specific logrotate config
+ynh_remove_logrotate
 
+#=================================================
+# CLOSE A PORT
+#=================================================
+
+if yunohost firewall list | grep -q "\- $port$"
+then
+	echo "Close port $port"
+	yunohost firewall disallow TCP $port 2>&1
+fi
+
+#=================================================
 # Remove Nodejs
+#=================================================
+
 ynh_remove_nodejs
+
+#=================================================
+# GENERIC FINALIZATION
+#=================================================
+# REMOVE DEDICATED USER
+#=================================================
+
+# Delete a system user
+ynh_system_user_delete $app
